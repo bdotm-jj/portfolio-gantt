@@ -1,0 +1,40 @@
+name: Refresh Smartsheet data
+
+# Pulls the two source sheets and regenerates data.js, then commits it so
+# GitHub Pages serves fresh numbers. The token lives only in repo secrets.
+
+on:
+  schedule:
+    # Every hour, on the hour, Mon–Fri (UTC). Adjust the cron as needed.
+    - cron: "0 * * * 1-5"
+  workflow_dispatch: {}          # lets you run it manually from the Actions tab
+
+permissions:
+  contents: write                # needed to commit the regenerated data.js
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Regenerate data.js from Smartsheet
+        env:
+          SMARTSHEET_TOKEN: ${{ secrets.SMARTSHEET_TOKEN }}
+        run: node fetch-smartsheet.js
+
+      - name: Commit if data changed
+        run: |
+          git config user.name  "portfolio-gantt-bot"
+          git config user.email "actions@users.noreply.github.com"
+          if [ -n "$(git status --porcelain data.js)" ]; then
+            git add data.js
+            git commit -m "chore: refresh Smartsheet data [skip ci]"
+            git push
+          else
+            echo "No data change."
+          fi
