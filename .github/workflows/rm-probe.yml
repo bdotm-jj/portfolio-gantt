@@ -27,13 +27,19 @@ jobs:
           SMARTSHEET_TOKEN: ${{ secrets.SMARTSHEET_TOKEN }}
         run: node rm-probe.js
 
-      - name: Commit sample for inspection
+      - name: Run full read-only RM extract
+        env:
+          RM_TOKEN: ${{ secrets.RM_TOKEN }}
+          SMARTSHEET_TOKEN: ${{ secrets.SMARTSHEET_TOKEN }}
+        run: node rm-extract.js
+
+      - name: Commit samples for inspection
         run: |
           git config user.name  "portfolio-gantt-bot"
           git config user.email "actions@users.noreply.github.com"
-          if [ -n "$(git status --porcelain rm-sample.js)" ]; then
-            git add rm-sample.js
-            git commit -m "chore: RM probe sample [skip ci]"
+          if [ -n "$(git status --porcelain rm-sample.js rm-data.js)" ]; then
+            git add rm-sample.js rm-data.js
+            git commit -m "chore: RM probe + extract sample [skip ci]"
             git push
           else
             echo "No sample change."
