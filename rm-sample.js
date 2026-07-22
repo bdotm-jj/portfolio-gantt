@@ -1,6 +1,6 @@
 // RM probe output — read-only sample for inspection. Safe to delete.
 window.RM_PROBE = {
-  "generatedAt": "2026-07-22T20:04:18.824Z",
+  "generatedAt": "2026-07-22T20:16:38.869Z",
   "report": [
     "=== RM PROBE (read-only) ===\n",
     "AUTH OK. Sample users (5):",
