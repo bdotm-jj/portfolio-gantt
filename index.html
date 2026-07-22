@@ -53,11 +53,30 @@
     display:flex;justify-content:space-between;font-family:'Helvetica Neue',Arial,sans-serif;}
   .sechdr{border-bottom:2px solid var(--ink);padding-bottom:8px;margin:34px 0 14px;display:flex;align-items:baseline;justify-content:space-between;}
   .sechdr .m{font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#6b6656;font-family:'Helvetica Neue',Arial,sans-serif;}
+  .tabbar{display:flex;gap:4px;border-bottom:2px solid var(--ink);margin-bottom:18px;}
+  .tab{font:inherit;font-size:13px;letter-spacing:0.04em;text-transform:uppercase;background:transparent;border:0.5px solid var(--rule);border-bottom:none;color:var(--muted);padding:9px 18px;border-radius:6px 6px 0 0;cursor:pointer;position:relative;top:2px;}
+  .tab.on{background:var(--ink);color:var(--cream);border-color:var(--ink);top:0;padding-bottom:11px;}
+  .lane{display:flex;align-items:stretch;border-bottom:0.5px solid #e8e1d0;min-height:52px;}
+  .lanelabel{width:190px;flex-shrink:0;padding:8px 10px 8px 0;display:flex;flex-direction:column;justify-content:center;}
+  .lanename{font-size:13px;color:var(--ink);}
+  .lanesub{font-size:10.5px;color:var(--muted);font-family:'Helvetica Neue',Arial,sans-serif;}
+  .lanetrack{position:relative;flex:1;}
+  .fbar{position:absolute;height:22px;border-radius:5px;cursor:grab;display:flex;align-items:center;padding:0 8px;font-size:11px;color:#fff;white-space:nowrap;overflow:hidden;font-family:'Helvetica Neue',Arial,sans-serif;user-select:none;}
+  .fbar:active{cursor:grabbing;}
+  .fbar .grip{position:absolute;right:0;top:0;bottom:0;width:9px;cursor:ew-resize;background:rgba(255,255,255,0.35);border-radius:0 5px 5px 0;}
+  .impact{position:fixed;right:20px;top:20px;width:340px;background:var(--card);border:1px solid var(--ink);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,0.25);padding:16px 18px;z-index:50;font-family:'Helvetica Neue',Arial,sans-serif;}
+  .impact h4{margin:0 0 4px;font-size:14px;color:var(--ink);font-family:'Iowan Old Style',Georgia,serif;font-style:italic;}
+  .impact .close{position:absolute;right:12px;top:10px;cursor:pointer;color:var(--muted);border:none;background:none;font-size:16px;}
+  .impact ul{list-style:none;margin:10px 0 0;padding:0;}
+  .impact li{padding:7px 0;border-top:0.5px solid #e8e1d0;font-size:12.5px;display:flex;gap:8px;align-items:flex-start;}
+  .sev{flex-shrink:0;width:9px;height:9px;border-radius:50%;margin-top:4px;}
+  .btn{font:inherit;font-size:12px;font-family:'Helvetica Neue',Arial,sans-serif;background:transparent;border:0.5px solid var(--ink);color:var(--ink);padding:5px 12px;border-radius:4px;cursor:pointer;}
 </style>
 </head>
 <body>
 <div id="app"></div>
 <script src="data.js"></script>
+<script src="rm-data.js" onerror="window.RM_DATA=window.RM_DATA||null"></script>
 <script>
 "use strict";
 if (typeof SNAPSHOT === "undefined") {
@@ -96,11 +115,29 @@ var active = projects.filter(function(p){ return !EXCLUDE_STAGE[p.stage] && p.st
 
 var filter="__all";
 var collapsed={};
+var activeTab="planactual";   // "planactual" | "forward"
+
+// ---- RM resource layer (optional; forward tab uses it) ----
+var RM = (typeof window!=="undefined" && window.RM_DATA) ? window.RM_DATA : null;
+// index RM projects by normalized code so we can join to SNAPSHOT (which carries JJ codes via manualOrder join)
+function normCode(c){ return c==null?null:String(c).replace(/\.0$/,""); }
+var rmByCode={};
+if(RM && RM.projects){ RM.projects.forEach(function(p){ var c=normCode(p.code); if(c) rmByCode[c]=p; }); }
 
 function cmpOrder(a,b){ var oa=a.manualOrder==null?Infinity:a.manualOrder, ob=b.manualOrder==null?Infinity:b.manualOrder;
   if(oa!==ob) return oa-ob; return (a.planStart||0)-(b.planStart||0); }
 
+// ---- top-level render: tab bar + dispatch ----
 function render(){
+  var tabs='<div class="tabbar sans">'
+    + '<button class="tab'+(activeTab==="planactual"?" on":"")+'" data-tab="planactual">Plan vs. Actual</button>'
+    + '<button class="tab'+(activeTab==="forward"?" on":"")+'" data-tab="forward">Forward Sequence</button>'
+    + '</div>';
+  var body = activeTab==="planactual" ? renderPlanActual() : renderForward();
+  document.getElementById('app').innerHTML = tabs + body;
+}
+
+function renderPlanActual(){
   var rows = filter==="__all" ? active : active.filter(function(p){return p.lob===filter;});
   var lobs = Array.from(new Set(active.map(function(p){return p.lob;}))).sort();
 
@@ -196,7 +233,7 @@ function render(){
   // BACKLOG
   h+=backlogPanel();
 
-  document.getElementById('app').innerHTML=h;
+  return h;
 }
 
 function queuePanel(){
@@ -235,9 +272,225 @@ function backlogPanel(){
   return h+'</div></section>';
 }
 
+// ============================ FORWARD SEQUENCE TAB ============================
+// Lanes = pods (default) or people (drill-down). Projects chain in manual-ordering
+// order, positioned on the calendar from RM task date ranges. Dragging a project's
+// grip extends it; everything sequenced after it in the same lane slides right.
+// On release, a popup names what's now in jeopardy relative to TODAY.
+
+var fwdMode = "pod";        // "pod" | "person"
+var fwdPodFilter = "__all"; // when in person mode, which pod's people to show
+var fwdOverrides = {};      // code -> extra days added by dragging (simulation only)
+
+function rmRange(code){
+  var r = rmByCode[normCode(code)];
+  if(!r) return null;
+  var ds=[]; (r.tasks||[]).forEach(function(t){ if(t.starts_at) ds.push(new Date(t.starts_at+"T00:00:00")); if(t.ends_at) ds.push(new Date(t.ends_at+"T00:00:00")); });
+  if(r.rmStart) ds.push(new Date(r.rmStart+"T00:00:00"));
+  if(r.rmEnd) ds.push(new Date(r.rmEnd+"T00:00:00"));
+  ds=ds.filter(function(d){return !isNaN(d);});
+  if(!ds.length) return null;
+  return { start:new Date(Math.min.apply(null,ds)), end:new Date(Math.max.apply(null,ds)) };
+}
+
+// Build lane model: for each active project that has RM data, its base range + people.
+function buildFwd(){
+  var items=[], missing=[];
+  active.forEach(function(p){
+    var code=null, rm=null;
+    for(var c in rmByCode){ if(rmByCode[c].rmName===p.name){ rm=rmByCode[c]; code=c; break; } }
+    if(!rm){ var pn=p.name.toLowerCase(); for(var c2 in rmByCode){ if((rmByCode[c2].rmName||"").toLowerCase()===pn){ rm=rmByCode[c2]; code=c2; break; } } }
+    if(!rm){ missing.push(p.name); return; }
+    var rng=rmRange(code);
+    if(!rng){ missing.push(p.name); return; }
+    items.push({ name:p.name, pod:p.pod, lob:p.lob, code:code, order:p.manualOrder,
+      baseStart:rng.start, baseEnd:rng.end, people:rm.people||[], status:p.status });
+  });
+  return { items:items, missing:missing };
+}
+
+// Apply cascade: within each lane, sort by order, chain so each starts no earlier than
+// prior ends; apply drag overrides (extra days) which lengthen a bar and push the tail.
+function cascade(items, laneKeyFn){
+  var lanes={};
+  items.forEach(function(it){ var k=laneKeyFn(it); (lanes[k]=lanes[k]||[]).push(it); });
+  var out={};
+  Object.keys(lanes).forEach(function(k){
+    var arr=lanes[k].slice().sort(cmpOrder);
+    var cursor=null; var placed=[];
+    arr.forEach(function(it){
+      var dur = (it.baseEnd - it.baseStart) + (fwdOverrides[it.code]||0)*86400000;
+      var start = new Date(+it.baseStart);
+      if(cursor && start < cursor) start = new Date(+cursor);
+      var end = new Date(+start + dur);
+      placed.push({ ref:it, start:start, end:end });
+      cursor = new Date(+end);
+    });
+    out[k]=placed;
+  });
+  return out;
+}
+
+function renderForward(){
+  if(!RM){ return '<div class="sans" style="padding:40px;color:#8a8474;">Forward Sequence needs <code>rm-data.js</code> (the Resource Management layer). Run the RM extract workflow, then reload.</div>'; }
+  var model=buildFwd();
+  var laneKeyFn = fwdMode==="pod" ? function(it){return it.pod||"Other";} : function(it){ return it.people[0]||"Unassigned"; };
+  var itemsForMode = model.items;
+  if(fwdMode==="person" && fwdPodFilter!=="__all"){ itemsForMode = model.items.filter(function(it){return (it.pod||"Other")===fwdPodFilter;}); }
+  if(fwdMode==="person"){
+    var exp=[]; itemsForMode.forEach(function(it){ (it.people.length?it.people:["Unassigned"]).forEach(function(pn){ exp.push(Object.assign({},it,{_person:pn})); }); });
+    itemsForMode=exp; laneKeyFn=function(it){return it._person;};
+  }
+  var placedByLane = cascade(itemsForMode, laneKeyFn);
+
+  var FLOOR=new Date(2026,0,1);
+  var all=[]; Object.keys(placedByLane).forEach(function(k){ placedByLane[k].forEach(function(pl){ all.push(pl.start,pl.end); }); });
+  var maxD = all.length? new Date(Math.max.apply(null,all.map(function(d){return +d;}))) : new Date(2026,11,31);
+  var start=FLOOR, pad=(maxD-start)*0.03, end=new Date(+maxD+pad), span=Math.max(end-start,1);
+  function pct(d){ return Math.max(0,((d-start)/span)*100); }
+  var stepM = span>400*86400000*2.2?2:1, ticks=[], cur=new Date(start.getFullYear(),start.getMonth(),1);
+  while(cur<end){ ticks.push(new Date(cur)); cur=new Date(cur.getFullYear(),cur.getMonth()+stepM,1); }
+  var today=new Date(), todayP=pct(today);
+  var LABEL_W=190;
+
+  var h='';
+  h+='<div class="sechdr"><h2 class="sec">Forward Sequence<span style="color:'+ACCENT+'">.</span></h2><span class="m">Projected queue · drag a bar\u2019s edge to simulate a slip</span></div>';
+  h+='<div class="sans" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 14px;font-size:12px;color:#4a463c;">';
+  h+='<button class="btn" id="fwdModeBtn">View: '+(fwdMode==="pod"?"Pods":"People")+' \u21c4</button>';
+  if(fwdMode==="person"){
+    var pods=Array.from(new Set(model.items.map(function(it){return it.pod||"Other";}))).sort();
+    h+='<select id="fwdPod"><option value="__all">All pods\u2019 people</option>'+pods.map(function(p){return '<option value="'+esc(p)+'"'+(p===fwdPodFilter?' selected':'')+'>'+esc(p)+'</option>';}).join('')+'</select>';
+  }
+  if(Object.keys(fwdOverrides).length){ h+='<button class="btn" id="fwdReset">Reset simulation</button>'; }
+  h+='<span style="color:#8a8474;">Chained by manual order · positioned from RM task dates · red line = today</span>';
+  h+='</div>';
+
+  h+='<div class="axis" style="margin-left:'+LABEL_W+'px;">'+ticks.map(function(t){return '<span style="position:absolute;left:'+pct(t)+'%;">'+t.toLocaleDateString(undefined,{month:'short',year:'2-digit'})+'</span>';}).join('')+'</div>';
+
+  h+='<div style="position:relative;">';
+  if(todayP>=0&&todayP<=100){ h+='<div style="position:absolute;top:0;bottom:0;left:calc('+LABEL_W+'px + '+todayP+'% * (100% - '+LABEL_W+'px) / 100%);width:1px;background:#c0433f;opacity:0.55;z-index:1;"></div>'; }
+
+  var laneKeys=Object.keys(placedByLane).sort(function(a,b){ return placedByLane[b].length-placedByLane[a].length || a.localeCompare(b); });
+  laneKeys.forEach(function(k){
+    var placed=placedByLane[k];
+    var color = colorFor((placed[0]&&placed[0].ref.lob)||"Other");
+    h+='<div class="lane"><div class="lanelabel"><span class="lanename">'+esc(k)+'</span><span class="lanesub">'+placed.length+' project'+(placed.length>1?'s':'')+'</span></div><div class="lanetrack">';
+    placed.forEach(function(pl){
+      var L=pct(pl.start), W=Math.max(pct(pl.end)-L,0.6);
+      var pushed=(fwdOverrides[pl.ref.code]||0)>0;
+      var barColor= pushed ? "#c0433f" : color;
+      h+='<div class="fbar" data-code="'+esc(pl.ref.code)+'" style="left:'+L+'%;width:'+W+'%;top:15px;'+bar3d(barColor)+'" title="'+esc(pl.ref.name)+' · '+pl.start.toLocaleDateString()+' \u2013 '+pl.end.toLocaleDateString()+'">'+esc(pl.ref.name)+'<span class="grip" data-grip="'+esc(pl.ref.code)+'"></span></div>';
+    });
+    h+='</div></div>';
+  });
+  h+='</div>';
+
+  if(model.missing.length){
+    h+='<div class="banner sans" style="margin-top:14px;">'+model.missing.length+' active project'+(model.missing.length>1?'s':'')+' not shown \u2014 no Resource Management schedule yet: <span style="color:#8a7020;">'+model.missing.map(esc).join(', ')+'</span></div>';
+  }
+  h+='<div id="impactMount"></div>';
+  return h;
+}
+
+function computeImpact(code, addedDays){
+  var model=buildFwd();
+  var laneKeyFn = function(it){return it.pod||"Other";};
+  var before=cascade(model.items, laneKeyFn);
+  var saved=fwdOverrides[code]; fwdOverrides[code]=(fwdOverrides[code]||0)+addedDays;
+  var after=cascade(model.items, laneKeyFn);
+  if(saved==null) delete fwdOverrides[code]; else fwdOverrides[code]=saved;
+
+  var dragged=null, laneOf=null;
+  Object.keys(after).forEach(function(k){ after[k].forEach(function(pl){ if(pl.ref.code===code){ dragged=pl.ref; laneOf=k; } }); });
+  if(!dragged) return null;
+
+  var today=new Date();
+  var beforeMap={}; (before[laneOf]||[]).forEach(function(pl){ beforeMap[pl.ref.code]=pl; });
+  var affected=[];
+  (after[laneOf]||[]).forEach(function(pl){
+    if(pl.ref.code===code) return;
+    var b=beforeMap[pl.ref.code]; if(!b) return;
+    var shift=Math.round((pl.start-b.start)/86400000);
+    if(shift<=0) return;
+    var weeksOut=Math.round((pl.start-today)/(7*86400000));
+    var sev, note;
+    if(pl.start<=today){ sev="red"; note="should be underway now, still waiting"; }
+    else if(weeksOut>=12){ sev="red"; note="now can\u2019t start for ~"+weeksOut+" weeks ("+pl.start.toLocaleDateString(undefined,{month:'short',year:'2-digit'})+")"; }
+    else { sev="amber"; note="pushed ~"+shift+" days, starts "+pl.start.toLocaleDateString(undefined,{month:'short',day:'numeric'}); }
+    affected.push({ name:pl.ref.name, sev:sev, note:note, person:(pl.ref.people||[])[0]||null });
+  });
+  var bottleneck=null;
+  if(dragged.people&&dragged.people.length){
+    var counts={}; affected.forEach(function(a){ if(a.person && dragged.people.indexOf(a.person)>=0) counts[a.person]=(counts[a.person]||0)+1; });
+    var best=-1; Object.keys(counts).forEach(function(pn){ if(counts[pn]>best){best=counts[pn];bottleneck=pn;} });
+    if(!bottleneck && dragged.people.length) bottleneck=dragged.people[0];
+  }
+  return { dragged:dragged, addedDays:addedDays, affected:affected, bottleneck:bottleneck };
+}
+
+function showImpact(imp){
+  var mount=document.getElementById('impactMount'); if(!mount) return;
+  if(!imp){ mount.innerHTML=""; return; }
+  var wk=Math.round(imp.addedDays/7);
+  var h='<div class="impact"><button class="close" id="impClose">\u00d7</button>';
+  h+='<h4>Extending '+esc(imp.dragged.name)+' by ~'+(wk>0?wk+' week'+(wk>1?'s':''):(imp.addedDays+' days'))+'</h4>';
+  if(!imp.affected.length){ h+='<div class="sans" style="font-size:12.5px;color:#3b6d11;margin-top:6px;">Nothing downstream is affected — the queue behind it absorbs the slip.</div>'; }
+  else{
+    h+='<div class="sans" style="font-size:12px;color:#6b6656;">'+imp.affected.length+' project'+(imp.affected.length>1?'s':'')+' put in jeopardy as of today:</div><ul>';
+    imp.affected.forEach(function(a){ var col=a.sev==="red"?"#c0433f":(a.sev==="amber"?"#EF9F27":"#8a8474");
+      h+='<li><span class="sev" style="background:'+col+'"></span><span><b>'+esc(a.name)+'</b> — '+esc(a.note)+'</span></li>'; });
+    h+='</ul>';
+    if(imp.bottleneck){ h+='<div class="sans" style="font-size:12px;color:#4a463c;margin-top:10px;border-top:0.5px solid #e8e1d0;padding-top:8px;"><b>Bottleneck:</b> '+esc(imp.bottleneck)+' is the shared resource driving this.</div>'; }
+  }
+  h+='</div>';
+  mount.innerHTML=h;
+}
+
+var dragState=null;
+document.addEventListener('pointerdown', function(e){
+  var grip=e.target.closest && e.target.closest('.grip'); if(!grip) return;
+  if(activeTab!=="forward") return;
+  e.preventDefault();
+  var track=grip.closest('.lanetrack'); var code=grip.getAttribute('data-grip');
+  dragState={ code:code, startX:e.clientX, trackW:track.getBoundingClientRect().width, bar:grip.parentElement, startWidthPct:parseFloat(grip.parentElement.style.width) };
+});
+document.addEventListener('pointermove', function(e){
+  if(!dragState) return;
+  var dx=e.clientX-dragState.startX;
+  var dwPct=(dx/dragState.trackW)*100;
+  dragState.bar.style.width=Math.max(dragState.startWidthPct+dwPct,0.6)+'%';
+});
+document.addEventListener('pointerup', function(e){
+  if(!dragState) return;
+  var dx=e.clientX-dragState.startX;
+  var model=buildFwd();
+  var FLOOR=new Date(2026,0,1);
+  var all=[]; model.items.forEach(function(it){ all.push(it.baseStart,it.baseEnd); });
+  var maxD=all.length?new Date(Math.max.apply(null,all.map(function(d){return +d;}))):new Date(2026,11,31);
+  var spanDays=Math.max((maxD-FLOOR)/86400000*1.06,1);
+  var addedDays=Math.round((dx/dragState.trackW)*spanDays);
+  var code=dragState.code; dragState=null;
+  if(addedDays<=0){ render(); return; }
+  var imp=computeImpact(code, addedDays);
+  fwdOverrides[code]=(fwdOverrides[code]||0)+addedDays;
+  render();
+  showImpact(imp);
+});
+
 // interactivity via delegation (survives re-render)
-document.addEventListener('change', function(e){ if(e.target && e.target.id==='lob'){ filter=e.target.value; render(); } });
-document.addEventListener('click', function(e){ var bar=e.target.closest && e.target.closest('.lobbar'); if(bar){ var l=bar.getAttribute('data-lob'); collapsed[l]=!collapsed[l]; render(); } });
+document.addEventListener('change', function(e){
+  if(e.target && e.target.id==='lob'){ filter=e.target.value; render(); }
+  if(e.target && e.target.id==='fwdPod'){ fwdPodFilter=e.target.value; render(); }
+});
+document.addEventListener('click', function(e){
+  var tab=e.target.closest && e.target.closest('.tab');
+  if(tab){ activeTab=tab.getAttribute('data-tab'); render(); return; }
+  var bar=e.target.closest && e.target.closest('.lobbar');
+  if(bar){ var l=bar.getAttribute('data-lob'); collapsed[l]=!collapsed[l]; render(); return; }
+  if(e.target && e.target.id==='fwdModeBtn'){ fwdMode = fwdMode==="pod"?"person":"pod"; render(); return; }
+  if(e.target && e.target.id==='fwdReset'){ fwdOverrides={}; render(); return; }
+  if(e.target && e.target.id==='impClose'){ var m=document.getElementById('impactMount'); if(m) m.innerHTML=""; return; }
+});
 
 render();
 </script>
