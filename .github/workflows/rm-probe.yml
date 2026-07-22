@@ -1,0 +1,40 @@
+name: RM probe (read-only, manual)
+
+# One-off exploration of the Resource Management API. Read-only: only GET calls.
+# Run it by hand from the Actions tab; it prints a report in the run log and
+# commits rm-sample.js so we can inspect the data shape. Delete this workflow
+# and rm-probe.js / rm-sample.js once we've designed the real integration.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Run read-only RM probe
+        env:
+          RM_TOKEN: ${{ secrets.RM_TOKEN }}
+          SMARTSHEET_TOKEN: ${{ secrets.SMARTSHEET_TOKEN }}
+        run: node rm-probe.js
+
+      - name: Commit sample for inspection
+        run: |
+          git config user.name  "portfolio-gantt-bot"
+          git config user.email "actions@users.noreply.github.com"
+          if [ -n "$(git status --porcelain rm-sample.js)" ]; then
+            git add rm-sample.js
+            git commit -m "chore: RM probe sample [skip ci]"
+            git push
+          else
+            echo "No sample change."
+          fi

@@ -63,9 +63,13 @@ function numOrNull(v) {
   const pc = indexer(portfolio);
   const ic = indexer(intake);
 
-  // --- Manual Ordering lookup from the intake sheet, keyed by project name ---
-  const orderByName = {};
+  // --- Manual Ordering lookup from the intake sheet, keyed by PROJECT CODE ---
+  // Project Code (the SYS_UNIQUEID) is stable across both sheets; names drift and collide,
+  // so we match on code and only use the name for display. Note: do NOT use "Project ID" —
+  // Motion projects carry an MO- prefixed Project ID while their Project Code stays JJ-.
+  const orderByCode = {};
   const intakeRows = intake.rows.map((r) => ({
+    code: ic(r, "Project Code") != null ? String(ic(r, "Project Code")) : null,
     name: ic(r, "Project Name"),
     lob: ic(r, "Department") || ic(r, "POD") || "Other",
     pod: ic(r, "POD") || "Other",
@@ -73,11 +77,12 @@ function numOrNull(v) {
     stage: ic(r, "Overall Project Stage") || "",
     status: ic(r, "Overall Project Status") || "",
   })).filter((r) => r.name);
-  intakeRows.forEach((r) => { if (r.name && r.order != null) orderByName[r.name] = r.order; });
+  intakeRows.forEach((r) => { if (r.code && r.order != null) orderByCode[r.code] = r.order; });
 
-  // --- Active projects (bars): Portfolio Summary joined to Manual Ordering ---
+  // --- Active projects (bars): Portfolio Summary joined to Manual Ordering by code ---
   const SNAPSHOT = portfolio.rows.map((r) => {
     const name = pc(r, "Project Name");
+    const code = pc(r, "Project Code") != null ? String(pc(r, "Project Code")) : null;
     return [
       name,
       pc(r, "POD") || "Other",
@@ -89,7 +94,7 @@ function numOrNull(v) {
       (function () { const raw = pc(r, "Planned End Date"); return ymd(raw) || (raw ? String(raw) : null); })(),
       ymd(pc(r, "Actual Start Date")),
       ymd(pc(r, "Actual End Date")),
-      name && orderByName[name] != null ? orderByName[name] : null,
+      code && orderByCode[code] != null ? orderByCode[code] : null,
     ];
   }).filter((row) => row[0] && !EXCLUDE_STAGE.has(row[4]) && row[3] !== "Closed");
 
