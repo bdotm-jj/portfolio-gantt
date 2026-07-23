@@ -95,6 +95,7 @@ function numOrNull(v) {
       ymd(pc(r, "Actual Start Date")),
       ymd(pc(r, "Actual End Date")),
       code && orderByCode[code] != null ? orderByCode[code] : null,
+      code || null,
     ];
   }).filter((row) => row[0] && !EXCLUDE_STAGE.has(row[4]) && row[3] !== "Closed");
 
