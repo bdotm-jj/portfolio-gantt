@@ -56,12 +56,14 @@
   .tabbar{display:flex;gap:4px;border-bottom:2px solid var(--ink);margin-bottom:18px;}
   .tab{font:inherit;font-size:13px;letter-spacing:0.04em;text-transform:uppercase;background:transparent;border:0.5px solid var(--rule);border-bottom:none;color:var(--muted);padding:9px 18px;border-radius:6px 6px 0 0;cursor:pointer;position:relative;top:2px;}
   .tab.on{background:var(--ink);color:var(--cream);border-color:var(--ink);top:0;padding-bottom:11px;}
-  .lane{display:flex;align-items:stretch;border-bottom:0.5px solid #e8e1d0;min-height:52px;}
+  .lane{display:flex;align-items:stretch;border-bottom:0.5px solid #e8e1d0;min-height:60px;}
   .lanelabel{width:190px;flex-shrink:0;padding:8px 10px 8px 0;display:flex;flex-direction:column;justify-content:center;}
   .lanename{font-size:13px;color:var(--ink);}
   .lanesub{font-size:10.5px;color:var(--muted);font-family:'Helvetica Neue',Arial,sans-serif;}
   .lanetrack{position:relative;flex:1;}
-  .fbar{position:absolute;height:22px;border-radius:5px;cursor:grab;display:flex;align-items:center;padding:0 8px;font-size:11px;color:#fff;white-space:nowrap;overflow:hidden;font-family:'Helvetica Neue',Arial,sans-serif;user-select:none;}
+  .fbar{position:absolute;height:22px;border-radius:5px;cursor:grab;display:flex;align-items:center;padding:0 8px;font-size:11px;color:#fff;white-space:nowrap;overflow:hidden;font-family:'Helvetica Neue',Arial,sans-serif;user-select:none;z-index:2;}
+  .fbar.dragging{z-index:30;box-shadow:0 6px 16px rgba(0,0,0,0.35);cursor:grabbing;}
+  .fbar.nudged{transition:left 0.12s ease;}
   .fbar:active{cursor:grabbing;}
   .fbar .grip{position:absolute;right:0;top:0;bottom:0;width:9px;cursor:ew-resize;background:rgba(255,255,255,0.35);border-radius:0 5px 5px 0;}
   .impact{position:fixed;right:20px;top:20px;width:340px;background:var(--card);border:1px solid var(--ink);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,0.25);padding:16px 18px;z-index:50;font-family:'Helvetica Neue',Arial,sans-serif;}
@@ -406,7 +408,7 @@ function renderForward(){
       var L=pct(pl.start), W=Math.max(pct(pl.end)-L,0.6);
       var resized=(fwdOverrides[pl.ref.code]||0)>0;
       var barColor= pl.pinned ? "#3a5a8a" : (resized ? "#c0433f" : color);
-      h+='<div class="fbar" data-code="'+esc(pl.ref.code)+'" style="left:'+L+'%;width:'+W+'%;top:15px;'+bar3d(barColor)+'" title="'+esc(pl.ref.name)+' · '+pl.start.toLocaleDateString()+' \u2013 '+pl.end.toLocaleDateString()+(pl.pinned?' · pinned':'')+'">'+(pl.pinned?'\u{1F4CC} ':'')+esc(pl.ref.name)+'<span class="grip" data-grip="'+esc(pl.ref.code)+'"></span></div>';
+      h+='<div class="fbar" data-code="'+esc(pl.ref.code)+'" data-order="'+(pl.ref.order==null?9999:pl.ref.order)+'" style="left:'+L+'%;width:'+W+'%;top:19px;'+bar3d(barColor)+'" title="'+esc(pl.ref.name)+' · '+pl.start.toLocaleDateString()+' \u2013 '+pl.end.toLocaleDateString()+(pl.pinned?' · pinned':'')+'">'+(pl.pinned?'\u{1F4CC} ':'')+esc(pl.ref.name)+'<span class="grip" data-grip="'+esc(pl.ref.code)+'"></span></div>';
     });
     h+='</div></div>';
   });
@@ -519,8 +521,19 @@ document.addEventListener('pointerdown', function(e){
   var track=(grip||bar).closest('.lanetrack');
   var barEl=grip?grip.parentElement:bar;
   var code=barEl.getAttribute('data-code');
+  var trackW=track.getBoundingClientRect().width;
+  var myOrder=parseFloat(barEl.getAttribute('data-order'));
+  // collect same-lane bars that come AFTER this one (for live push during a move)
+  var neighbors=[];
+  Array.prototype.forEach.call(track.querySelectorAll('.fbar'), function(el){
+    if(el===barEl) return;
+    if(parseFloat(el.getAttribute('data-order')) > myOrder){
+      neighbors.push({ el:el, baseLeft:parseFloat(el.style.left), width:parseFloat(el.style.width) });
+    }
+  });
+  barEl.classList.add('dragging');
   dragState={ mode: grip?"resize":"move", code:code, startX:e.clientX,
-    trackW:track.getBoundingClientRect().width, bar:barEl,
+    trackW:trackW, bar:barEl, track:track, neighbors:neighbors,
     startLeftPct:parseFloat(barEl.style.left), startWidthPct:parseFloat(barEl.style.width) };
 });
 document.addEventListener('pointermove', function(e){
@@ -528,13 +541,30 @@ document.addEventListener('pointermove', function(e){
   var dx=e.clientX-dragState.startX;
   var dPct=(dx/dragState.trackW)*100;
   if(dragState.mode==="resize"){
-    dragState.bar.style.width=Math.max(dragState.startWidthPct+dPct,0.6)+'%';
-  } else { // move: slide whole bar
-    dragState.bar.style.left=Math.max(dragState.startLeftPct+dPct,0)+'%';
+    var newW=Math.max(dragState.startWidthPct+dPct,0.6);
+    dragState.bar.style.width=newW+'%';
+    // live push neighbors when the resized bar's right edge passes them
+    var rightEdge=dragState.startLeftPct+newW;
+    pushNeighbors(dragState, rightEdge);
+  } else {
+    var newLeft=Math.max(dragState.startLeftPct+dPct,0);
+    dragState.bar.style.left=newLeft+'%';
+    var rightEdge=newLeft+dragState.startWidthPct;
+    pushNeighbors(dragState, rightEdge);
   }
 });
+function pushNeighbors(st, draggedRightPct){
+  st.neighbors.forEach(function(n){
+    n.el.classList.add('nudged');
+    // if the dragged bar's right edge now passes a neighbor's original left, shove it right
+    var overlap = draggedRightPct - n.baseLeft;
+    if(overlap > 0){ n.el.style.left=(n.baseLeft+overlap+0.4)+'%'; }
+    else { n.el.style.left=n.baseLeft+'%'; }
+  });
+}
 document.addEventListener('pointerup', function(e){
   if(!dragState) return;
+  dragState.bar.classList.remove('dragging');
   var dx=e.clientX-dragState.startX;
   var spanDays=fwdSpanDays();
   var deltaDays=Math.round((dx/dragState.trackW)*spanDays);
@@ -545,14 +575,14 @@ document.addEventListener('pointerup', function(e){
     var imp=computeImpact(code, deltaDays, null);
     fwdOverrides[code]=Math.max((fwdOverrides[code]||0)+deltaDays,0);
     render(); showImpact(imp);
-  } else { // move -> pin to new start
+  } else {
     if(deltaDays===0){ render(); return; }
     var model=buildFwd(); var it=null; model.items.forEach(function(x){ if(x.code===code) it=x; });
     if(!it){ render(); return; }
     var curStart = fwdPins[code] ? fwdPins[code] : it.baseStart;
     var today=new Date(); today.setHours(0,0,0,0);
     var newStart=new Date(+curStart + deltaDays*86400000);
-    if(newStart<today) newStart=new Date(+today); // can't start before today
+    if(newStart<today) newStart=new Date(+today);
     var imp=computeImpact(code, 0, newStart);
     fwdPins[code]=newStart;
     render(); showImpact(imp);
