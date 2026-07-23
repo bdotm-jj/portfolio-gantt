@@ -60,7 +60,10 @@
   .lanelabel{width:190px;flex-shrink:0;padding:8px 10px 8px 0;display:flex;flex-direction:column;justify-content:center;}
   .lanename{font-size:13px;color:var(--ink);}
   .lanesub{font-size:10.5px;color:var(--muted);font-family:'Helvetica Neue',Arial,sans-serif;}
-  .lanetrack{position:relative;flex:1;}
+  .lanetrack{position:relative;flex:1;overflow:hidden;}
+  .pager{display:inline-flex;align-items:center;gap:6px;}
+  .pager .btn{padding:5px 9px;}
+  .winlabel{font-family:'Helvetica Neue',Arial,sans-serif;font-size:11.5px;color:var(--ink);min-width:118px;text-align:center;letter-spacing:0.03em;}
   .fbar{position:absolute;height:22px;border-radius:5px;cursor:grab;display:flex;align-items:center;padding:0 8px;font-size:11px;color:#fff;white-space:nowrap;overflow:hidden;font-family:'Helvetica Neue',Arial,sans-serif;user-select:none;z-index:2;}
   .fbar.dragging{z-index:30;box-shadow:0 6px 16px rgba(0,0,0,0.35);cursor:grabbing;}
   .fbar.nudged{transition:left 0.12s ease;}
@@ -291,6 +294,7 @@ var fwdPodFilter = "__all"; // when in person mode, which pod's people to show
 var fwdOverrides = {};      // code -> extra days added by dragging the edge (resize)
 var fwdPins = {};           // code -> pinned start Date (manual move); cascade flows around it
 var zoom = "month";         // "month" | "quarter" | "year"
+var fwdWinStart = null;      // Date: left edge of the visible window (null = auto/default)
 
 function rmRange(code){
   var r = rmByCode[normCode(code)];
@@ -347,12 +351,14 @@ function cascade(items, laneKeyFn){
   return out;
 }
 
-// Zoom controls axis granularity + how far the calendar is padded out.
+// Zoom defines a WINDOW (visible slice), its tick granularity, and how far ◀▶ pages.
 function zoomConfig(){
-  if(zoom==="year")    return { stepMonths:12, fmt:{year:'numeric'},               padFactor:0.06 };
-  if(zoom==="quarter") return { stepMonths:3,  fmt:{month:'short',year:'2-digit'}, padFactor:0.05 };
-  return                      { stepMonths:1,  fmt:{month:'short',year:'2-digit'}, padFactor:0.03 };
+  if(zoom==="year")    return { windowMonths:0,  stepMonths:12, tickFmt:{year:'numeric'},               pageMonths:12, weekTicks:false }; // 0 = full span
+  if(zoom==="quarter") return { windowMonths:3,  stepMonths:1,  tickFmt:{month:'short',year:'2-digit'}, pageMonths:3,  weekTicks:false };
+  return                      { windowMonths:2,  stepMonths:1,  tickFmt:{month:'short',day:'numeric'},  pageMonths:1,  weekTicks:true };
 }
+function addMonths(d,n){ return new Date(d.getFullYear(), d.getMonth()+n, d.getDate()); }
+function monthFloor(d){ return new Date(d.getFullYear(), d.getMonth(), 1); }
 
 function renderForward(){
   if(!RM){ return '<div class="sans" style="padding:40px;color:#8a8474;">Forward Sequence needs <code>rm-data.js</code> (the Resource Management layer). Run the RM extract workflow, then reload.</div>'; }
@@ -368,13 +374,31 @@ function renderForward(){
 
   var FLOOR=new Date(2026,0,1);
   var all=[]; Object.keys(placedByLane).forEach(function(k){ placedByLane[k].forEach(function(pl){ all.push(pl.start,pl.end); }); });
-  var maxD = all.length? new Date(Math.max.apply(null,all.map(function(d){return +d;}))) : new Date(2026,11,31);
+  var dataMin = all.length? new Date(Math.min.apply(null,all.map(function(d){return +d;}))) : FLOOR;
+  var dataMax = all.length? new Date(Math.max.apply(null,all.map(function(d){return +d;}))) : new Date(2026,11,31);
   var zc=zoomConfig();
-  var start=FLOOR, pad=(maxD-start)*zc.padFactor, end=new Date(+maxD+pad), span=Math.max(end-start,1);
-  function pct(d){ return Math.max(0,((d-start)/span)*100); }
-  var ticks=[], cur=new Date(start.getFullYear(),start.getMonth(),1);
-  while(cur<end){ ticks.push(new Date(cur)); cur=new Date(cur.getFullYear(),cur.getMonth()+zc.stepMonths,1); }
-  var today=new Date(), todayP=pct(today);
+  var today=new Date(); today.setHours(0,0,0,0);
+
+  var start, end;
+  if(zc.windowMonths===0){
+    start = FLOOR;
+    end = addMonths(monthFloor(dataMax), 12);
+  } else {
+    if(!fwdWinStart){ fwdWinStart = monthFloor(today < dataMin ? dataMin : today); }
+    start = monthFloor(fwdWinStart);
+    end = addMonths(start, zc.windowMonths);
+  }
+  var span=Math.max(end-start,1);
+  function pct(d){ return ((d-start)/span)*100; }
+  function clip(v){ return Math.max(0,Math.min(100,v)); }
+
+  var ticks=[];
+  if(zc.weekTicks){
+    var c=new Date(start); while(c<end){ ticks.push(new Date(c)); c=new Date(+c+7*86400000); }
+  } else {
+    var cur=monthFloor(start); while(cur<end){ ticks.push(new Date(cur)); cur=addMonths(cur,zc.stepMonths); }
+  }
+  var todayP=pct(today);
   var LABEL_W=190;
 
   var h='';
@@ -386,6 +410,10 @@ function renderForward(){
     + '<button class="btn zoombtn'+(zoom==="quarter"?" on":"")+'" data-zoom="quarter">Quarter</button>'
     + '<button class="btn zoombtn'+(zoom==="year"?" on":"")+'" data-zoom="year">Year</button>'
     + '</span>';
+  if(zc.windowMonths!==0){
+    var winLabel = start.toLocaleDateString(undefined,{month:'short',year:'2-digit'}) + ' \u2013 ' + addMonths(start,zc.windowMonths-1).toLocaleDateString(undefined,{month:'short',year:'2-digit'});
+    h+='<span class="pager"><button class="btn" id="fwdPrev">\u25c0</button><span class="winlabel">'+winLabel+'</span><button class="btn" id="fwdNext">\u25b6</button><button class="btn" id="fwdNow">Today</button></span>';
+  }
   if(fwdMode==="person"){
     var pods=Array.from(new Set(model.items.map(function(it){return it.pod||"Other";}))).sort();
     h+='<select id="fwdPod"><option value="__all">All pods\u2019 people</option>'+pods.map(function(p){return '<option value="'+esc(p)+'"'+(p===fwdPodFilter?' selected':'')+'>'+esc(p)+'</option>';}).join('')+'</select>';
@@ -394,7 +422,7 @@ function renderForward(){
   h+='<span style="color:#8a8474;">Chained by manual order · red line = today · \u{1F4CC} = pinned</span>';
   h+='</div>';
 
-  h+='<div class="axis" style="margin-left:'+LABEL_W+'px;">'+ticks.map(function(t){return '<span style="position:absolute;left:'+pct(t)+'%;">'+t.toLocaleDateString(undefined,zc.fmt)+'</span>';}).join('')+'</div>';
+  h+='<div class="axis" style="margin-left:'+LABEL_W+'px;">'+ticks.map(function(t){var p=pct(t); if(p<0||p>100)return ''; return '<span style="position:absolute;left:'+p+'%;">'+t.toLocaleDateString(undefined,zc.tickFmt)+'</span>';}).join('')+'</div>';
 
   h+='<div style="position:relative;">';
   if(todayP>=0&&todayP<=100){ h+='<div style="position:absolute;top:0;bottom:0;left:calc('+LABEL_W+'px + '+todayP+'% * (100% - '+LABEL_W+'px) / 100%);width:1px;background:#c0433f;opacity:0.55;z-index:1;"></div>'; }
@@ -405,10 +433,14 @@ function renderForward(){
     var color = colorFor((placed[0]&&placed[0].ref.lob)||"Other");
     h+='<div class="lane"><div class="lanelabel"><span class="lanename">'+esc(k)+'</span><span class="lanesub">'+placed.length+' project'+(placed.length>1?'s':'')+'</span></div><div class="lanetrack">';
     placed.forEach(function(pl){
-      var L=pct(pl.start), W=Math.max(pct(pl.end)-L,0.6);
+      var rawL=pct(pl.start), rawR=pct(pl.end);
+      if(rawR<0 || rawL>100) return;            // entirely outside the window
+      var L=clip(rawL), R=clip(rawR), W=Math.max(R-L,0.6);
       var resized=(fwdOverrides[pl.ref.code]||0)>0;
       var barColor= pl.pinned ? "#3a5a8a" : (resized ? "#c0433f" : color);
-      h+='<div class="fbar" data-code="'+esc(pl.ref.code)+'" data-order="'+(pl.ref.order==null?9999:pl.ref.order)+'" style="left:'+L+'%;width:'+W+'%;top:19px;'+bar3d(barColor)+'" title="'+esc(pl.ref.name)+' · '+pl.start.toLocaleDateString()+' \u2013 '+pl.end.toLocaleDateString()+(pl.pinned?' · pinned':'')+'">'+(pl.pinned?'\u{1F4CC} ':'')+esc(pl.ref.name)+'<span class="grip" data-grip="'+esc(pl.ref.code)+'"></span></div>';
+      var clippedL = rawL<0, clippedR = rawR>100;
+      var radius = (clippedL?"0":"5px")+" "+(clippedR?"0":"5px")+" "+(clippedR?"0":"5px")+" "+(clippedL?"0":"5px");
+      h+='<div class="fbar" data-code="'+esc(pl.ref.code)+'" data-order="'+(pl.ref.order==null?9999:pl.ref.order)+'" style="left:'+L+'%;width:'+W+'%;top:19px;border-radius:'+radius+';'+bar3d(barColor)+'" title="'+esc(pl.ref.name)+' · '+pl.start.toLocaleDateString()+' \u2013 '+pl.end.toLocaleDateString()+(pl.pinned?' · pinned':'')+'">'+(pl.pinned?'\u{1F4CC} ':'')+esc(pl.ref.name)+'<span class="grip" data-grip="'+esc(pl.ref.code)+'"></span></div>';
     });
     h+='</div></div>';
   });
@@ -506,11 +538,16 @@ function showImpact(imp){
 
 var dragState=null;
 function fwdSpanDays(){
-  var model=buildFwd();
-  var FLOOR=new Date(2026,0,1);
-  var all=[]; model.items.forEach(function(it){ all.push(it.baseStart,it.baseEnd); Object.keys(fwdPins).forEach(function(c){ if(fwdPins[c]) all.push(fwdPins[c]); }); });
-  var maxD=all.length?new Date(Math.max.apply(null,all.map(function(d){return +d;}))):new Date(2026,11,31);
-  return Math.max((maxD-FLOOR)/86400000*(1+zoomConfig().padFactor),1);
+  // days spanned by the currently visible window (so a pixel drag maps to sensible days)
+  var zc=zoomConfig();
+  if(zc.windowMonths===0){
+    var FLOOR=new Date(2026,0,1);
+    var model=buildFwd(); var all=[]; model.items.forEach(function(it){ all.push(it.baseStart,it.baseEnd); });
+    var maxD=all.length?new Date(Math.max.apply(null,all.map(function(d){return +d;}))):new Date(2026,11,31);
+    return Math.max((addMonths(monthFloor(maxD),12)-FLOOR)/86400000,1);
+  }
+  var s=monthFloor(fwdWinStart||new Date());
+  return Math.max((addMonths(s,zc.windowMonths)-s)/86400000,1);
 }
 document.addEventListener('pointerdown', function(e){
   if(activeTab!=="forward") return;
@@ -601,7 +638,10 @@ document.addEventListener('click', function(e){
   if(bar){ var l=bar.getAttribute('data-lob'); collapsed[l]=!collapsed[l]; render(); return; }
   if(e.target && e.target.id==='fwdModeBtn'){ fwdMode = fwdMode==="pod"?"person":"pod"; render(); return; }
   var zb=e.target.closest && e.target.closest('.zoombtn');
-  if(zb){ zoom=zb.getAttribute('data-zoom'); render(); return; }
+  if(zb){ zoom=zb.getAttribute('data-zoom'); fwdWinStart=null; render(); return; }
+  if(e.target && e.target.id==='fwdPrev'){ var z=zoomConfig(); fwdWinStart=addMonths(monthFloor(fwdWinStart||new Date()), -z.pageMonths); render(); return; }
+  if(e.target && e.target.id==='fwdNext'){ var z2=zoomConfig(); fwdWinStart=addMonths(monthFloor(fwdWinStart||new Date()), z2.pageMonths); render(); return; }
+  if(e.target && e.target.id==='fwdNow'){ fwdWinStart=null; render(); return; }
   if(e.target && e.target.id==='fwdReset'){ fwdOverrides={}; fwdPins={}; render(); return; }
   if(e.target && e.target.id==='impClose'){ var m=document.getElementById('impactMount'); if(m) m.innerHTML=""; return; }
 });
