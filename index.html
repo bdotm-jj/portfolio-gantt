@@ -26,10 +26,14 @@
   .dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:9px;vertical-align:middle;}
   .podhead{font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);
     padding:9px 4px 3px;border-bottom:0.5px solid var(--rule);font-family:'Helvetica Neue',Arial,sans-serif;}
-  .row{display:flex;align-items:center;height:46px;border-bottom:0.5px solid #e8e1d0;}
+  .row{display:flex;align-items:center;height:52px;border-bottom:0.5px solid #e8e1d0;}
   .row:hover{background:rgba(22,38,61,0.04);}
   .rowlabel{width:250px;padding-right:10px;flex-shrink:0;font-size:13px;white-space:nowrap;
     overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:7px;}
+  .namewrap{display:flex;flex-direction:column;overflow:hidden;line-height:1.25;}
+  .pname{overflow:hidden;text-overflow:ellipsis;}
+  .headline{font-family:'Helvetica Neue',Arial,sans-serif;font-size:10px;color:#8a8474;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .golive{position:absolute;top:24px;font-family:'Helvetica Neue',Arial,sans-serif;font-size:10.5px;color:#5a564c;white-space:nowrap;}
   .track{position:relative;flex:1;height:100%;}
   .badge{flex-shrink:0;width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;
     justify-content:center;font-size:11px;font-weight:500;font-family:'Helvetica Neue',Arial,sans-serif;}
@@ -120,6 +124,7 @@ var projects = SNAPSHOT.map(function(r){
   return { name:r[0], pod:r[1], lob:r[2]||"Other", status:status||"\u2014", stage:r[4],
     planStart:pd(r[5]), planEnd:planEnd, actStart:pd(r[7]), actEnd:pd(r[8]), rawPlanEnd:r[6],
     manualOrder:(r[9]==null?null:Number(r[9])), code:(r[10]!=null?String(r[10]).replace(/\.0$/,""):null),
+    goLive:pd(r[11]), headline:(r[12]||""),
     gaps:gaps, parked:!!PARKED[status] };
 });
 var active = projects.filter(function(p){ return !EXCLUDE_STAGE[p.stage] && p.status!=="Closed"; });
@@ -215,10 +220,10 @@ function renderPlanActual(){
             : (badge===0 ? "background:"+color+";color:#fff;border:none;" : "background:"+CARD+";color:"+INK+";border:1px solid "+INK+";");
           var statusLabel = (p.status&&p.status!=="\u2014")?p.status:"Not Started";
 
-          h+='<div class="row"><div class="rowlabel" title="'+esc(p.name)+'">';
+          h+='<div class="row"><div class="rowlabel" title="'+esc(p.name)+(p.headline?' — '+esc(p.headline):'')+'">';
           h+='<span class="badge" style="'+badgeStyle+'" title="'+(badge==null?'Unranked':'Manual ordering: '+badge)+'">'+(badge==null?'\u2013':badge)+'</span>';
           if(p.parked){ h+='<span class="statustag">'+esc(statusLabel)+'</span>'; }
-          h+='<span style="overflow:hidden;text-overflow:ellipsis;">'+esc(p.name)+'</span></div>';
+          h+='<span class="namewrap"><span class="pname">'+esc(p.name)+'</span>'+(p.headline?'<span class="headline">'+esc(p.headline)+'</span>':'')+'</span></div>';
           h+='<div class="track">';
           if(hasPlan){ h+='<div title="Planned: '+fmt(p.planStart)+' \u2013 '+fmt(p.planEnd)+'" style="position:absolute;left:'+psP+'%;width:'+Math.max(peP-psP,0.4)+'%;top:7px;height:12px;border:1.5px solid '+(p.parked?'#b4ad9a':'#6b6656')+';border-radius:3px;background-image:linear-gradient(to bottom,rgba(0,0,0,0.06),rgba(255,255,255,0.35));box-shadow:inset 0 1px 2px rgba(0,0,0,0.15),0 0.5px 0 rgba(255,255,255,0.6);"></div>'; }
           if(hasAct&&!over){
@@ -228,6 +233,12 @@ function renderPlanActual(){
           if(hasAct&&over){
             h+='<div title="Actual to planned end: '+fmt(p.actStart)+' \u2013 '+fmt(p.planEnd)+'" style="position:absolute;left:'+asP+'%;width:'+Math.max(splitP-asP,0.4)+'%;top:23px;height:16px;border-radius:5px 0 0 5px;'+bar3d(fill)+'"></div>';
             h+='<div title="Overrun: past planned end by '+overD+' days (\u2192 '+fmt(p.actEnd)+')" style="position:absolute;left:'+splitP+'%;width:'+Math.max(aeP-splitP,0.4)+'%;top:23px;height:16px;border-radius:0 5px 5px 0;'+bar3d("#c0433f")+'"></div>';
+          }
+          // go-live date label just past the end of the bar (actual end, else planned end)
+          var endP = hasAct?aeP:(hasPlan?peP:null);
+          if(p.goLive && endP!=null && endP<=100){
+            var glLabel = 'Go-live '+(p.goLive.getMonth()+1)+'/'+p.goLive.getDate()+'/'+String(p.goLive.getFullYear()).slice(2);
+            h+='<div class="golive" style="left:calc('+Math.min(endP,100)+'% + 7px);">'+glLabel+'</div>';
           }
           h+='</div></div>';
         });

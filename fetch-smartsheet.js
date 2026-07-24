@@ -96,6 +96,8 @@ function numOrNull(v) {
       ymd(pc(r, "Actual End Date")),
       code && orderByCode[code] != null ? orderByCode[code] : null,
       code || null,
+      ymd(pc(r, "Go Live Date")) || ymd(pc(r, "Go Live")) || null,
+      pc(r, "Status Headline") || null,
     ];
   }).filter((row) => row[0] && !EXCLUDE_STAGE.has(row[4]) && row[3] !== "Closed");
 
