@@ -85,12 +85,21 @@
   .zoomgrp .zoombtn:first-child{border-radius:4px 0 0 4px;border-left-width:0.5px;}
   .zoomgrp .zoombtn:last-child{border-radius:0 4px 4px 0;}
   .zoomgrp .zoombtn.on{background:var(--ink);color:var(--cream);}
+  .phrow{display:flex;align-items:center;min-height:48px;border-bottom:0.5px solid #e8e1d0;}
+  .phlabel{width:230px;flex-shrink:0;padding-right:12px;display:flex;align-items:center;gap:8px;}
+  .phdot{width:10px;height:10px;border-radius:2px;flex-shrink:0;}
+  .phname{font-size:12.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}
+  .phvar{font-family:'Helvetica Neue',Arial,sans-serif;font-size:10px;flex-shrink:0;}
+  .phtrack{position:relative;flex:1;height:40px;}
+  .phplan{position:absolute;top:6px;height:11px;border:1.5px solid #6b6656;border-radius:3px;background-image:linear-gradient(to bottom,rgba(0,0,0,0.05),rgba(255,255,255,0.35));box-shadow:inset 0 1px 2px rgba(0,0,0,0.12);}
+  .phact{position:absolute;top:21px;height:13px;border-radius:3px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.4),0 1px 2px rgba(0,0,0,0.15);}
 </style>
 </head>
 <body>
 <div id="app"></div>
 <script src="data.js"></script>
 <script src="rm-data.js" onerror="window.RM_DATA=window.RM_DATA||null"></script>
+<script src="phase-data.js" onerror="window.PHASE_DATA=window.PHASE_DATA||null"></script>
 <script>
 "use strict";
 if (typeof SNAPSHOT === "undefined") {
@@ -131,7 +140,22 @@ var active = projects.filter(function(p){ return !EXCLUDE_STAGE[p.stage] && p.st
 
 var filter="__all";
 var collapsed={};
-var activeTab="planactual";   // "planactual" | "forward"
+var activeTab="planactual";   // "planactual" | "phases" | "forward"
+var phaseProject=null;        // selected project code in the Phases tab
+
+// Softer, expanded palette for phase segments (Lewis: less bold, more colors)
+var PHASE_COLORS = {
+  "Planning & Discovery":             "#8ba888",
+  "Requirements & Design":            "#7fa0b8",
+  "Development":                      "#6fa8a0",
+  "Alpha Testing (Dev Testing)":      "#d9b26b",
+  "Acceptance Testing (UAT/Pre-Prod)":"#cf9a86",
+  "Release":                          "#a98cb0",
+  "Stabilization (Hypercare)":        "#9fb08c",
+  "Retrospective and Closeout":       "#c0a58a"
+};
+var PHASE_FALLBACK = ["#8ba888","#7fa0b8","#6fa8a0","#d9b26b","#cf9a86","#a98cb0","#9fb08c","#c0a58a","#b0a0c0","#8aa0a8"];
+function phaseColor(name, i){ return PHASE_COLORS[name] || PHASE_FALLBACK[i % PHASE_FALLBACK.length]; }
 
 // ---- RM resource layer (optional; forward tab uses it) ----
 var RM = (typeof window!=="undefined" && window.RM_DATA) ? window.RM_DATA : null;
@@ -147,9 +171,12 @@ function cmpOrder(a,b){ var oa=a.manualOrder==null?Infinity:a.manualOrder, ob=b.
 function render(){
   var tabs='<div class="tabbar sans">'
     + '<button class="tab'+(activeTab==="planactual"?" on":"")+'" data-tab="planactual">Plan vs. Actual</button>'
+    + '<button class="tab'+(activeTab==="phases"?" on":"")+'" data-tab="phases">Project Phases</button>'
     + '<button class="tab'+(activeTab==="forward"?" on":"")+'" data-tab="forward">Forward Sequence</button>'
     + '</div>';
-  var body = activeTab==="planactual" ? renderPlanActual() : renderForward();
+  var body = activeTab==="planactual" ? renderPlanActual()
+           : activeTab==="phases"    ? renderPhases()
+           : renderForward();
   document.getElementById('app').innerHTML = tabs + body;
 }
 
@@ -294,8 +321,84 @@ function backlogPanel(){
   return h+'</div></section>';
 }
 
-// ============================ FORWARD SEQUENCE TAB ============================
-// Lanes = pods (default) or people (drill-down). Projects chain in manual-ordering
+// ============================ PROJECT PHASES TAB ============================
+// Per-project phase breakdown: PLANNED (frozen baseline) vs ACTUAL (live project plan),
+// each phase a distinct soft color, two bars per phase (planned above, actual below),
+// on a WEEK scale measured from the project's start so every project reads on one scale.
+var PH = (typeof window!=="undefined" && window.PHASE_DATA) ? window.PHASE_DATA : null;
+
+function renderPhases(){
+  var withBaseline = (PH && PH.projects) ? PH.projects : [];
+  if(!withBaseline.length){
+    return '<div class="sans" style="padding:40px;color:#8a8474;">No project baselines yet. Create a "Planned … Do Not Touch" sheet for a project (like Scottsdale Phase 3&4) and it will appear here as a planned-vs-actual phase breakdown.</div>';
+  }
+  if(!phaseProject) phaseProject = withBaseline[0].code;
+  var proj = withBaseline.filter(function(p){return p.code===phaseProject;})[0] || withBaseline[0];
+
+  // active projects that DON'T have a baseline yet (to list as "awaiting baseline")
+  var haveCodes = {}; withBaseline.forEach(function(p){ haveCodes[normCode(p.code)]=true; });
+  var awaiting = active.filter(function(p){ return !haveCodes[normCode(p.code)]; });
+
+  var h='';
+  h+='<div class="sechdr"><h2 class="sec">Project Phases<span style="color:'+ACCENT+'">.</span></h2><span class="m">Planned baseline vs actual · by phase · week scale</span></div>';
+
+  // project picker (only baseline-bearing projects are selectable)
+  h+='<div class="sans" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 16px;font-size:12px;color:#4a463c;">';
+  h+='<label>Project: <select id="phaseSel">'+withBaseline.map(function(p){return '<option value="'+esc(p.code)+'"'+(p.code===phaseProject?' selected':'')+'>'+esc(p.name)+'</option>';}).join('')+'</select></label>';
+  h+='<span style="display:inline-flex;gap:14px;align-items:center;"><span style="display:inline-flex;align-items:center;gap:5px;"><span style="display:inline-block;width:22px;height:9px;border:1.5px solid #6b6656;border-radius:2px;background-image:linear-gradient(to bottom,rgba(0,0,0,0.05),rgba(255,255,255,0.35));"></span> planned baseline</span><span style="display:inline-flex;align-items:center;gap:5px;"><span style="display:inline-block;width:22px;height:11px;border-radius:3px;background:#6fa8a0;"></span> actual</span></span>';
+  h+='</div>';
+
+  var phases = proj.phases || [];
+  // domain: weeks from the earliest planned/actual start to the latest planned/actual end
+  var ds=[];
+  phases.forEach(function(ph){ [ph.plannedStart,ph.plannedEnd,ph.actualStart,ph.actualEnd].forEach(function(d){ if(d) ds.push(new Date(d+"T00:00:00")); }); });
+  ds=ds.filter(function(d){return !isNaN(d);});
+  if(!ds.length){ return h+'<div class="sans" style="padding:20px;color:#8a8474;">No phase dates for this project.</div>'; }
+  var t0=new Date(Math.min.apply(null,ds.map(function(d){return +d;})));
+  var t1=new Date(Math.max.apply(null,ds.map(function(d){return +d;})));
+  var totalWeeks=Math.max(Math.ceil((t1-t0)/(7*86400000)),1);
+  var padWeeks=totalWeeks+0.5;
+  function wk(d){ return ((new Date(d+"T00:00:00"))-t0)/(7*86400000); }
+  function pctW(weeks){ return (weeks/padWeeks)*100; }
+
+  var LABEL_W=230;
+  // week axis
+  h+='<div class="axis" style="margin-left:'+LABEL_W+'px;">';
+  for(var w=0; w<=padWeeks; w++){ h+='<span style="position:absolute;left:'+pctW(w)+'%;">W'+w+'</span>'; }
+  h+='</div>';
+
+  // one row per phase, two stacked bars
+  phases.forEach(function(ph, i){
+    var col=phaseColor(ph.phase, i);
+    var pS=wk(ph.plannedStart), pE=wk(ph.plannedEnd), aS=wk(ph.actualStart), aE=wk(ph.actualEnd);
+    var plannedDays=Math.round(((new Date(ph.plannedEnd))-(new Date(ph.plannedStart)))/86400000)+1;
+    var actualDays=Math.round(((new Date(ph.actualEnd))-(new Date(ph.actualStart)))/86400000)+1;
+    var variance=actualDays-plannedDays;
+    var varTxt = variance===0 ? "on plan" : (variance>0? "+"+variance+"d over" : variance+"d under");
+    var varCol = variance===0 ? "#8a8474" : (variance>0? "#c0433f" : "#3b6d11");
+
+    h+='<div class="phrow"><div class="phlabel"><span class="phdot" style="background:'+col+'"></span><span class="phname">'+esc(ph.phase)+'</span><span class="phvar" style="color:'+varCol+'">'+varTxt+'</span></div><div class="phtrack">';
+    // planned bar (hollow outline, top)
+    var pL=pctW(pS), pW=Math.max(pctW(pE)-pL,0.5);
+    h+='<div class="phplan" title="Planned: '+ph.plannedStart+' \u2013 '+ph.plannedEnd+' ('+plannedDays+'d)" style="left:'+pL+'%;width:'+pW+'%;"></div>';
+    // actual bar (solid, below)
+    var aL=pctW(aS), aW=Math.max(pctW(aE)-aL,0.5);
+    h+='<div class="phact" title="Actual: '+ph.actualStart+' \u2013 '+ph.actualEnd+' ('+actualDays+'d)" style="left:'+aL+'%;width:'+aW+'%;background:'+bar3dFlat(col)+';"></div>';
+    h+='</div></div>';
+  });
+
+  // project total planned vs actual footer
+  var pTotal=Math.round((t1-t0)/86400000);
+  h+='<div class="sans" style="margin-top:14px;font-size:11.5px;color:#6b6656;">Frozen baseline captured '+(PH.generatedAt||'')+'. As the live plan\u2019s phase dates move, the actual bars diverge from the planned outlines above \u2014 the gap is the estimation miss.</div>';
+
+  if(awaiting.length){
+    h+='<div class="banner sans" style="margin-top:16px;">'+awaiting.length+' active project'+(awaiting.length>1?'s':'')+' awaiting a planned baseline sheet: <span style="color:#8a7020;">'+awaiting.slice(0,40).map(function(p){return esc(p.name);}).join(', ')+(awaiting.length>40?'\u2026':'')+'</span></div>';
+  }
+  return h;
+}
+function bar3dFlat(c){ return 'linear-gradient(to bottom,'+shade(c,28)+','+c+' 55%,'+shade(c,-22)+')'; }
+
+
 // order, positioned on the calendar from RM task date ranges. Dragging a project's
 // grip extends it; everything sequenced after it in the same lane slides right.
 // On release, a popup names what's now in jeopardy relative to TODAY.
@@ -641,6 +744,7 @@ document.addEventListener('pointerup', function(e){
 document.addEventListener('change', function(e){
   if(e.target && e.target.id==='lob'){ filter=e.target.value; render(); }
   if(e.target && e.target.id==='fwdPod'){ fwdPodFilter=e.target.value; render(); }
+  if(e.target && e.target.id==='phaseSel'){ phaseProject=e.target.value; render(); }
 });
 document.addEventListener('click', function(e){
   var tab=e.target.closest && e.target.closest('.tab');
