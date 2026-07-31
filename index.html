@@ -142,6 +142,7 @@ var filter="__all";
 var collapsed={};
 var activeTab="planactual";   // "planactual" | "phases" | "forward"
 var phaseProject=null;        // selected project code in the Phases tab
+var phaseLob="__all";         // LOB filter that scopes the project picker on the Phases tab
 
 // Softer, expanded palette for phase segments (Lewis: less bold, more colors)
 var PHASE_COLORS = {
@@ -332,8 +333,15 @@ function renderPhases(){
   if(!withBaseline.length){
     return '<div class="sans" style="padding:40px;color:#8a8474;">No project baselines yet. Create a "Planned … Do Not Touch" sheet for a project (like Scottsdale Phase 3&4) and it will appear here as a planned-vs-actual phase breakdown.</div>';
   }
-  if(!phaseProject) phaseProject = withBaseline[0].code;
-  var proj = withBaseline.filter(function(p){return p.code===phaseProject;})[0] || withBaseline[0];
+
+  // LOBs present among baseline-bearing projects, for the scoping selector
+  var phaseLobs = Array.from(new Set(withBaseline.map(function(p){return p.lob||"Other";}))).sort();
+  // scope the selectable projects to the chosen LOB
+  var scoped = phaseLob==="__all" ? withBaseline : withBaseline.filter(function(p){return (p.lob||"Other")===phaseLob;});
+  if(!scoped.length){ scoped = withBaseline; phaseLob="__all"; }
+  // keep the selected project valid within the scope
+  if(!phaseProject || !scoped.some(function(p){return p.code===phaseProject;})) phaseProject = scoped[0].code;
+  var proj = scoped.filter(function(p){return p.code===phaseProject;})[0] || scoped[0];
 
   // active projects that DON'T have a baseline yet (to list as "awaiting baseline")
   var haveCodes = {}; withBaseline.forEach(function(p){ haveCodes[normCode(p.code)]=true; });
@@ -342,9 +350,10 @@ function renderPhases(){
   var h='';
   h+='<div class="sechdr"><h2 class="sec">Project Phases<span style="color:'+ACCENT+'">.</span></h2><span class="m">Planned baseline vs actual · by phase · week scale</span></div>';
 
-  // project picker (only baseline-bearing projects are selectable)
+  // LOB selector (scopes picker) + project picker
   h+='<div class="sans" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 16px;font-size:12px;color:#4a463c;">';
-  h+='<label>Project: <select id="phaseSel">'+withBaseline.map(function(p){return '<option value="'+esc(p.code)+'"'+(p.code===phaseProject?' selected':'')+'>'+esc(p.name)+'</option>';}).join('')+'</select></label>';
+  h+='<label>Line of business: <select id="phaseLobSel"><option value="__all">All</option>'+phaseLobs.map(function(l){return '<option value="'+esc(l)+'"'+(l===phaseLob?' selected':'')+'>'+esc(l)+'</option>';}).join('')+'</select></label>';
+  h+='<label>Project: <select id="phaseSel">'+scoped.map(function(p){return '<option value="'+esc(p.code)+'"'+(p.code===phaseProject?' selected':'')+'>'+esc(p.name)+'</option>';}).join('')+'</select></label>';
   h+='<span style="display:inline-flex;gap:14px;align-items:center;"><span style="display:inline-flex;align-items:center;gap:5px;"><span style="display:inline-block;width:22px;height:9px;border:1.5px solid #6b6656;border-radius:2px;background-image:linear-gradient(to bottom,rgba(0,0,0,0.05),rgba(255,255,255,0.35));"></span> planned baseline</span><span style="display:inline-flex;align-items:center;gap:5px;"><span style="display:inline-block;width:22px;height:11px;border-radius:3px;background:#6fa8a0;"></span> actual</span></span>';
   h+='</div>';
 
@@ -404,6 +413,8 @@ function bar3dFlat(c){ return 'linear-gradient(to bottom,'+shade(c,28)+','+c+' 5
 // On release, a popup names what's now in jeopardy relative to TODAY.
 
 var fwdMode = "pod";        // "pod" | "person"
+var fwdView = "cascade";    // "cascade" (per-project lanes) | "horizon" (collapsed pod-capacity)
+var fwdHorizonMonths = 6;   // 6 | 12 — how far the pod-horizon view looks ahead
 var fwdPodFilter = "__all"; // when in person mode, which pod's people to show
 var fwdOverrides = {};      // code -> extra days added by dragging the edge (resize)
 var fwdPins = {};           // code -> pinned start Date (manual move); cascade flows around it
@@ -476,6 +487,7 @@ function monthFloor(d){ return new Date(d.getFullYear(), d.getMonth(), 1); }
 
 function renderForward(){
   if(!RM){ return '<div class="sans" style="padding:40px;color:#8a8474;">Forward Sequence needs <code>rm-data.js</code> (the Resource Management layer). Run the RM extract workflow, then reload.</div>'; }
+  if(fwdView==="horizon"){ return renderPodHorizon(); }
   var model=buildFwd();
   var laneKeyFn = fwdMode==="pod" ? function(it){return it.pod||"Other";} : function(it){ return it.people[0]||"Unassigned"; };
   var itemsForMode = model.items;
@@ -518,6 +530,7 @@ function renderForward(){
   var h='';
   h+='<div class="sechdr"><h2 class="sec">Forward Sequence<span style="color:'+ACCENT+'">.</span></h2><span class="m">Drag a bar to move it (pins) · drag its edge to resize</span></div>';
   h+='<div class="sans" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 14px;font-size:12px;color:#4a463c;">';
+  h+='<span class="zoomgrp"><button class="btn zoombtn'+(fwdView==="cascade"?" on":"")+'" data-fwdview="cascade">Cascade</button><button class="btn zoombtn'+(fwdView==="horizon"?" on":"")+'" data-fwdview="horizon">Pod Horizon</button></span>';
   h+='<button class="btn" id="fwdModeBtn">View: '+(fwdMode==="pod"?"Pods":"People")+' \u21c4</button>';
   h+='<span class="zoomgrp">'
     + '<button class="btn zoombtn'+(zoom==="month"?" on":"")+'" data-zoom="month">Month</button>'
@@ -564,6 +577,72 @@ function renderForward(){
     h+='<div class="banner sans" style="margin-top:14px;">'+model.missing.length+' active project'+(model.missing.length>1?'s':'')+' not shown \u2014 no Resource Management schedule yet: <span style="color:#8a7020;">'+model.missing.map(esc).join(', ')+'</span></div>';
   }
   h+='<div id="impactMount"></div>';
+  return h;
+}
+
+// ---- Pod Horizon: collapsed pod-capacity view (Lewis Tab 2) ----
+// Each pod becomes ONE bar spanning its committed work (earliest start -> latest end)
+// within a today -> today+N month window, grouped under LOB headers. Less detail than
+// the cascade; answers "how booked is each pod over the next two quarters."
+function renderPodHorizon(){
+  var model=buildFwd();
+  var today=new Date(); today.setHours(0,0,0,0);
+  var winStart=new Date(today.getFullYear(),today.getMonth(),1);
+  var winEnd=addMonths(winStart, fwdHorizonMonths);
+  var span=Math.max(winEnd-winStart,1);
+  function pct(d){ return ((d-winStart)/span)*100; }
+  function clip(v){ return Math.max(0,Math.min(100,v)); }
+
+  var byLob={};
+  model.items.forEach(function(it){
+    var end=new Date(+it.baseStart + (it.baseEnd-it.baseStart) + (fwdOverrides[it.code]||0)*86400000);
+    var start=fwdPins[it.code]?new Date(+fwdPins[it.code]):it.baseStart;
+    if(end<winStart || start>winEnd) return;
+    var lob=it.lob||"Other", pod=it.pod||"Other";
+    (byLob[lob]=byLob[lob]||{})[pod]=byLob[lob][pod]||{items:[],min:null,max:null};
+    var slot=byLob[lob][pod];
+    slot.items.push(it);
+    if(slot.min===null||start<slot.min) slot.min=start;
+    if(slot.max===null||end>slot.max) slot.max=end;
+  });
+
+  var LABEL_W=190;
+  var h='';
+  h+='<div class="sechdr"><h2 class="sec">Pod Horizon<span style="color:'+ACCENT+'">.</span></h2><span class="m">How booked each pod is \u00b7 today \u2192 +'+fwdHorizonMonths+' months</span></div>';
+  h+='<div class="sans" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 14px;font-size:12px;color:#4a463c;">';
+  h+='<span class="zoomgrp"><button class="btn zoombtn'+(fwdView==="cascade"?" on":"")+'" data-fwdview="cascade">Cascade</button><button class="btn zoombtn'+(fwdView==="horizon"?" on":"")+'" data-fwdview="horizon">Pod Horizon</button></span>';
+  h+='<span class="zoomgrp"><button class="btn zoombtn'+(fwdHorizonMonths===6?" on":"")+'" data-horizon="6">6 months</button><button class="btn zoombtn'+(fwdHorizonMonths===12?" on":"")+'" data-horizon="12">12 months</button></span>';
+  h+='<span style="color:#8a8474;">each bar = pod\u2019s committed span \u00b7 number = active projects in window</span>';
+  h+='</div>';
+
+  h+='<div class="axis" style="margin-left:'+LABEL_W+'px;">';
+  var cur=new Date(winStart);
+  while(cur<winEnd){ h+='<span style="position:absolute;left:'+pct(cur)+'%;">'+cur.toLocaleDateString(undefined,{month:'short',year:'2-digit'})+'</span>'; cur=addMonths(cur,1); }
+  h+='</div>';
+
+  h+='<div style="position:relative;">';
+  var todayP=pct(today);
+  if(todayP>=0&&todayP<=100){ h+='<div style="position:absolute;top:0;bottom:0;left:calc('+LABEL_W+'px + '+todayP+'% * (100% - '+LABEL_W+'px) / 100%);width:1px;background:#c0433f;opacity:0.5;z-index:1;"></div>'; }
+
+  var lobNames=Object.keys(byLob).sort();
+  if(!lobNames.length){ h+='<div class="sans" style="padding:20px;color:#8a8474;">No pod activity falls within the next '+fwdHorizonMonths+' months.</div>'; }
+  lobNames.forEach(function(lob){
+    var color=colorFor(lob);
+    h+='<div class="lobbar" data-lob="'+esc(lob)+'" style="cursor:default;"><span>'+esc(lob)+'</span></div>';
+    var pods=byLob[lob];
+    Object.keys(pods).sort().forEach(function(podName){
+      var slot=pods[podName];
+      var L=clip(pct(slot.min)), R=clip(pct(slot.max)), W=Math.max(R-L,0.6);
+      var clippedL=pct(slot.min)<0, clippedR=pct(slot.max)>100;
+      var weeksBooked=Math.round((slot.max-slot.min)/(7*86400000));
+      var radius=(clippedL?"0":"5px")+" "+(clippedR?"0":"5px")+" "+(clippedR?"0":"5px")+" "+(clippedL?"0":"5px");
+      h+='<div class="lane"><div class="lanelabel"><span class="lanename">'+esc(podName)+'</span><span class="lanesub">'+slot.items.length+' project'+(slot.items.length>1?'s':'')+' \u00b7 ~'+weeksBooked+'w booked</span></div><div class="lanetrack">';
+      h+='<div class="fbar" style="left:'+L+'%;width:'+W+'%;top:15px;cursor:default;border-radius:'+radius+';'+bar3d(color)+'" title="'+esc(podName)+': '+slot.min.toLocaleDateString()+' \u2013 '+slot.max.toLocaleDateString()+'"><span style="font-weight:600;">'+slot.items.length+'</span></div>';
+      h+='</div></div>';
+    });
+  });
+  h+='</div>';
+  h+='<div class="sans" style="margin-top:14px;font-size:11.5px;color:#6b6656;">Collapsed capacity view: each bar spans the pod\u2019s earliest committed start to its latest end within the window. Longer bars = more continuously booked. Switch to <b>Cascade</b> for the project-by-project sequence and what-if.</div>';
   return h;
 }
 
@@ -744,6 +823,7 @@ document.addEventListener('pointerup', function(e){
 document.addEventListener('change', function(e){
   if(e.target && e.target.id==='lob'){ filter=e.target.value; render(); }
   if(e.target && e.target.id==='fwdPod'){ fwdPodFilter=e.target.value; render(); }
+  if(e.target && e.target.id==='phaseLobSel'){ phaseLob=e.target.value; phaseProject=null; render(); }
   if(e.target && e.target.id==='phaseSel'){ phaseProject=e.target.value; render(); }
 });
 document.addEventListener('click', function(e){
@@ -752,6 +832,10 @@ document.addEventListener('click', function(e){
   var bar=e.target.closest && e.target.closest('.lobbar');
   if(bar){ var l=bar.getAttribute('data-lob'); collapsed[l]=!collapsed[l]; render(); return; }
   if(e.target && e.target.id==='fwdModeBtn'){ fwdMode = fwdMode==="pod"?"person":"pod"; render(); return; }
+  var fv=e.target.closest && e.target.closest('[data-fwdview]');
+  if(fv){ fwdView=fv.getAttribute('data-fwdview'); render(); return; }
+  var hz=e.target.closest && e.target.closest('[data-horizon]');
+  if(hz){ fwdHorizonMonths=parseInt(hz.getAttribute('data-horizon'),10); render(); return; }
   var zb=e.target.closest && e.target.closest('.zoombtn');
   if(zb){ zoom=zb.getAttribute('data-zoom'); fwdWinStart=null; render(); return; }
   if(e.target && e.target.id==='fwdPrev'){ var z=zoomConfig(); fwdWinStart=addMonths(monthFloor(fwdWinStart||new Date()), -z.pageMonths); render(); return; }
