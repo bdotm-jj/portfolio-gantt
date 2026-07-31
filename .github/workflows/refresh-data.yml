@@ -16,23 +16,28 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Regenerate data.js from Smartsheet
         env:
           SMARTSHEET_TOKEN: ${{ secrets.SMARTSHEET_TOKEN }}
         run: node fetch-smartsheet.js
 
+      - name: Regenerate phase-data.js (planned baseline vs actual)
+        env:
+          SMARTSHEET_TOKEN: ${{ secrets.SMARTSHEET_TOKEN }}
+        run: node fetch-phases.js
+
       - name: Commit if data changed
         run: |
           git config user.name  "portfolio-gantt-bot"
           git config user.email "actions@users.noreply.github.com"
-          if [ -n "$(git status --porcelain data.js)" ]; then
-            git add data.js
+          if [ -n "$(git status --porcelain data.js phase-data.js)" ]; then
+            git add data.js phase-data.js
             git commit -m "chore: refresh Smartsheet data [skip ci]"
             git push
           else
