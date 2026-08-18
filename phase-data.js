@@ -28,42 +28,42 @@ window.PHASE_DATA = {
           "plannedStart": "2026-07-27",
           "plannedEnd": "2026-08-18",
           "actualStart": "2026-07-27",
-          "actualEnd": "2026-08-18"
+          "actualEnd": "2026-08-25"
         },
         {
           "phase": "Alpha Testing (Dev Testing)",
           "plannedStart": "2026-08-19",
           "plannedEnd": "2026-08-27",
-          "actualStart": "2026-08-19",
-          "actualEnd": "2026-08-27"
+          "actualStart": "2026-08-26",
+          "actualEnd": "2026-09-03"
         },
         {
           "phase": "Acceptance Testing (UAT/Pre-Prod)",
           "plannedStart": "2026-08-28",
           "plannedEnd": "2026-09-14",
-          "actualStart": "2026-08-28",
-          "actualEnd": "2026-09-14"
+          "actualStart": "2026-09-04",
+          "actualEnd": "2026-09-21"
         },
         {
           "phase": "Release",
           "plannedStart": "2026-09-15",
           "plannedEnd": "2026-09-15",
-          "actualStart": "2026-09-15",
-          "actualEnd": "2026-09-15"
+          "actualStart": "2026-09-22",
+          "actualEnd": "2026-09-22"
         },
         {
           "phase": "Stabilization (Hypercare)",
           "plannedStart": "2026-09-16",
           "plannedEnd": "2026-09-29",
-          "actualStart": "2026-09-16",
-          "actualEnd": "2026-09-29"
+          "actualStart": "2026-09-23",
+          "actualEnd": "2026-10-06"
         },
         {
           "phase": "Retrospective and Closeout",
           "plannedStart": "2026-09-30",
           "plannedEnd": "2026-10-07",
-          "actualStart": "2026-09-30",
-          "actualEnd": "2026-10-07"
+          "actualStart": "2026-10-07",
+          "actualEnd": "2026-10-14"
         }
       ]
     }
