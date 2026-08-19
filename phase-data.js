@@ -4,6 +4,63 @@ window.PHASE_DATA = {
   "generatedAt": "2026-08-19",
   "projects": [
     {
+      "code": "JJ-1065",
+      "name": "P3: Quote and Printing Improvement",
+      "pod": "Program Pod",
+      "lob": "Program",
+      "phases": [
+        {
+          "phase": "Requirements & Design",
+          "plannedStart": "2026-03-12",
+          "plannedEnd": "2026-04-13",
+          "actualStart": "2026-03-12",
+          "actualEnd": "2026-04-13"
+        },
+        {
+          "phase": "Development",
+          "plannedStart": "2026-04-13",
+          "plannedEnd": "2026-12-30",
+          "actualStart": "2026-04-13",
+          "actualEnd": "2026-12-30"
+        },
+        {
+          "phase": "Alpha Testing (Dev Testing)",
+          "plannedStart": "2026-04-28",
+          "plannedEnd": "2027-01-20",
+          "actualStart": "2026-04-28",
+          "actualEnd": "2027-01-20"
+        },
+        {
+          "phase": "Acceptance Testing (UAT/Pre-Prod)",
+          "plannedStart": "2027-01-20",
+          "plannedEnd": "2027-02-16",
+          "actualStart": "2027-01-20",
+          "actualEnd": "2027-02-16"
+        },
+        {
+          "phase": "Release",
+          "plannedStart": "2027-02-17",
+          "plannedEnd": "2027-02-23",
+          "actualStart": "2027-02-17",
+          "actualEnd": "2027-02-23"
+        },
+        {
+          "phase": "Stabilization (Hypercare)",
+          "plannedStart": "2027-02-23",
+          "plannedEnd": "2027-03-09",
+          "actualStart": "2027-02-23",
+          "actualEnd": "2027-03-09"
+        },
+        {
+          "phase": "Retrospective and Closeout",
+          "plannedStart": "2027-03-10",
+          "plannedEnd": "2027-03-10",
+          "actualStart": "2027-03-10",
+          "actualEnd": "2027-03-10"
+        }
+      ]
+    },
+    {
       "code": "JJ-1202",
       "name": "Scottsdale Phase 3 and 4 - Reinstatements, Renewals and Expansion",
       "pod": "PL Pod",
