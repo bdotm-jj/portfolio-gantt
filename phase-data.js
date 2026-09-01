@@ -113,14 +113,14 @@ window.PHASE_DATA = {
           "plannedStart": "2026-09-16",
           "plannedEnd": "2026-09-29",
           "actualStart": "2026-09-23",
-          "actualEnd": "2026-10-06"
+          "actualEnd": "2026-10-14"
         },
         {
           "phase": "Retrospective and Closeout",
           "plannedStart": "2026-09-30",
           "plannedEnd": "2026-10-07",
-          "actualStart": "2026-10-07",
-          "actualEnd": "2026-10-14"
+          "actualStart": "2026-10-15",
+          "actualEnd": "2026-10-22"
         }
       ]
     }
