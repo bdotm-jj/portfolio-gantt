@@ -99,7 +99,7 @@ window.PHASE_DATA = {
           "plannedStart": "2026-08-28",
           "plannedEnd": "2026-09-14",
           "actualStart": "2026-09-04",
-          "actualEnd": "2026-09-22"
+          "actualEnd": "2026-09-29"
         },
         {
           "phase": "Release",
