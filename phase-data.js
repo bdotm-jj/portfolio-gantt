@@ -112,15 +112,15 @@ window.PHASE_DATA = {
           "phase": "Stabilization (Hypercare)",
           "plannedStart": "2026-09-16",
           "plannedEnd": "2026-09-29",
-          "actualStart": "2026-09-30",
-          "actualEnd": "2026-10-14"
+          "actualStart": null,
+          "actualEnd": null
         },
         {
           "phase": "Retrospective and Closeout",
           "plannedStart": "2026-09-30",
           "plannedEnd": "2026-10-07",
-          "actualStart": "2026-10-15",
-          "actualEnd": "2026-10-22"
+          "actualStart": null,
+          "actualEnd": null
         }
       ]
     }
