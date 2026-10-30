@@ -99,21 +99,21 @@ window.PHASE_DATA = {
           "plannedStart": "2026-08-28",
           "plannedEnd": "2026-09-14",
           "actualStart": "2026-09-04",
-          "actualEnd": "2026-09-29"
+          "actualEnd": "2026-12-01"
         },
         {
           "phase": "Release",
           "plannedStart": "2026-09-15",
           "plannedEnd": "2026-09-15",
-          "actualStart": null,
-          "actualEnd": null
+          "actualStart": "2026-12-02",
+          "actualEnd": "2026-12-02"
         },
         {
           "phase": "Stabilization (Hypercare)",
           "plannedStart": "2026-09-16",
           "plannedEnd": "2026-09-29",
-          "actualStart": null,
-          "actualEnd": null
+          "actualStart": "2026-12-03",
+          "actualEnd": "2026-12-16"
         },
         {
           "phase": "Retrospective and Closeout",
